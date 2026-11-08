@@ -1,0 +1,7 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <!-- A rounded cartridge with a down arrow -->
+    <path android:fillColor="#7C5CFF" android:pathData="M36,30h30l6,6v38a4,4 0,0 1,-4 4H36a4,4 0,0 1,-4 -4V34a4,4 0,0 1,4 -4z" />
+    <path android:fillColor="#0C0E14" android:pathData="M40,36h22v12H40z" />
+    <path android:fillColor="#38BDF8" android:pathData="M48,54h6v8h5l-8,9 -8,-9h5z" />
+</vector>
