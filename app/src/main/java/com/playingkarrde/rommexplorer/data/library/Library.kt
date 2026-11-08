@@ -98,7 +98,8 @@ class Library(
                 add(name)
                 if (rom.isMulti) add("$name.zip")
             }
-            val hit = candidates.firstOrNull { it in names } ?: continue
+            // Case-insensitive like the storage it usually lives on; record the name as it is on disk.
+            val hit = candidates.firstNotNullOfOrNull { c -> if (c in names) c else names.firstOrNull { it.equals(c, ignoreCase = true) } } ?: continue
             val rel = Paths.join(folder, hit)
             found += entryFor(rom, rel, storage.size(rel))
         }

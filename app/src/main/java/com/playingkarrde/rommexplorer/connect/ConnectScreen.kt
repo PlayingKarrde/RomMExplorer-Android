@@ -49,7 +49,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.playingkarrde.rommexplorer.data.settings.AppSettings
 import com.playingkarrde.rommexplorer.ui.AppButton
+import com.playingkarrde.rommexplorer.ui.PadTextField
 import com.playingkarrde.rommexplorer.ui.Palette
+import com.playingkarrde.rommexplorer.ui.rememberPadFieldState
 import com.playingkarrde.rommexplorer.ui.focusRing
 import kotlinx.coroutines.launch
 
@@ -70,7 +72,7 @@ fun ConnectScreen(
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val focus = LocalFocusManager.current
-    val first = remember { FocusRequester() }
+    val urlField = rememberPadFieldState()
 
     fun submit() {
         if (busy) return
@@ -86,7 +88,8 @@ fun ConnectScreen(
         }
     }
 
-    LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
+    // Highlight the first field without opening the keyboard.
+    LaunchedEffect(Unit) { urlField.requestFocus() }
 
     Box(Modifier.fillMaxSize().background(Palette.Background).imePadding(), contentAlignment = Alignment.Center) {
         Column(
@@ -101,27 +104,27 @@ fun ConnectScreen(
             Text("Connect to your RomM server", color = Palette.TextDim)
             Spacer(Modifier.height(4.dp))
 
-            val next = KeyboardActions(onNext = { focus.moveFocus(FocusDirection.Down) })
-            OutlinedTextField(
-                url, { url = it }, label = { Text("Server address") }, placeholder = { Text("http://192.168.1.10:8080") },
-                singleLine = true, modifier = Modifier.fillMaxWidth().focusRequester(first),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next), keyboardActions = next,
+            // Fields only open the keyboard when selected (A / tap); "Next" moves on to the following field.
+            val next = { focus.moveFocus(FocusDirection.Down); Unit }
+            PadTextField(
+                url, { url = it }, Modifier.fillMaxWidth(), urlField, label = "Server address", placeholder = "http://192.168.1.10:8080",
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next), onImeAction = next,
             )
-            OutlinedTextField(
-                user, { user = it }, label = { Text("Username") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next), keyboardActions = next,
+            PadTextField(
+                user, { user = it }, Modifier.fillMaxWidth(), label = "Username",
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next), onImeAction = next,
             )
-            OutlinedTextField(
-                pass, { pass = it }, label = { Text("Password") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+            PadTextField(
+                pass, { pass = it }, Modifier.fillMaxWidth(), label = "Password",
                 visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Next), keyboardActions = next,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Next), onImeAction = next,
             )
             Text("…or use a RomM API token instead (it takes priority):", color = Palette.Muted, fontSize = 13.sp)
-            OutlinedTextField(
-                token, { token = it }, label = { Text("API token (rmm_…)") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+            PadTextField(
+                token, { token = it }, Modifier.fillMaxWidth(), label = "API token (rmm_…)",
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { focus.clearFocus(); submit() }),
+                onImeAction = next,
             )
             Row(
                 Modifier

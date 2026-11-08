@@ -85,6 +85,9 @@ import com.playingkarrde.rommexplorer.ui.ButtonStyle
 import com.playingkarrde.rommexplorer.ui.Cover
 import com.playingkarrde.rommexplorer.ui.PadAction
 import com.playingkarrde.rommexplorer.ui.PadHandler
+import com.playingkarrde.rommexplorer.ui.PadTextField
+import com.playingkarrde.rommexplorer.ui.rememberPadFieldState
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import com.playingkarrde.rommexplorer.ui.Palette
 import com.playingkarrde.rommexplorer.ui.focusRing
 import com.playingkarrde.rommexplorer.ui.formatBytes
@@ -102,11 +105,9 @@ class BrowseCallbacks(
 @Composable
 fun BrowseScreen(vm: BrowseViewModel, compact: Boolean, cb: BrowseCallbacks) {
     val ui by vm.ui.collectAsState()
-    val searchFocus = remember { FocusRequester() }
+    val searchField = rememberPadFieldState()
     val railFocus = remember { FocusRequester() }
     var showOptions by remember { mutableStateOf(false) }
-    var searchFocused by remember { mutableStateOf(false) }
-    val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
 
     fun toggleInstall(rom: Rom) {
@@ -119,8 +120,6 @@ fun BrowseScreen(vm: BrowseViewModel, compact: Boolean, cb: BrowseCallbacks) {
         }
     }
 
-    BackHandler(enabled = searchFocused) { focusManager.clearFocus() }
-
     PadHandler { action ->
         when (action) {
             PadAction.X -> {
@@ -128,7 +127,7 @@ fun BrowseScreen(vm: BrowseViewModel, compact: Boolean, cb: BrowseCallbacks) {
                 ui.roms.firstOrNull { it.id == id }?.let(::toggleInstall)
                 true
             }
-            PadAction.Y -> { runCatching { searchFocus.requestFocus() }; true }
+            PadAction.Y -> { searchField.startEditing(); true }
             PadAction.L1 -> { vm.cyclePlatform(-1); true }
             PadAction.R1 -> { vm.cyclePlatform(1); true }
             PadAction.L2, PadAction.R2 -> {
@@ -172,22 +171,18 @@ fun BrowseScreen(vm: BrowseViewModel, compact: Boolean, cb: BrowseCallbacks) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            OutlinedTextField(
+            PadTextField(
                 value = ui.filters.query,
                 onValueChange = vm::setQuery,
-                placeholder = { Text("Search games") },
+                state = searchField,
+                placeholder = "Search games",
                 leadingIcon = { Icon(Icons.Filled.Search, null) },
-                trailingIcon = {
-                    if (ui.filters.query.isNotEmpty()) AppIconButton(Icons.Filled.Close, "Clear search", { vm.setQuery("") })
-                    else ButtonHint("Y")
-                },
-                singleLine = true,
-                shape = RoundedCornerShape(12.dp),
+                trailingIcon = { ButtonHint("Y") },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
-                colors = TextFieldDefaults.colors(focusedContainerColor = Palette.Surface, unfocusedContainerColor = Palette.Surface),
-                modifier = Modifier.weight(1f).focusRequester(searchFocus).onFocusChanged { searchFocused = it.isFocused },
+                colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = Palette.Surface, unfocusedContainerColor = Palette.Surface),
+                modifier = Modifier.weight(1f),
             )
+            if (ui.filters.query.isNotEmpty()) AppIconButton(Icons.Filled.Close, "Clear search", { vm.setQuery("") })
             AppIconButton(Icons.Filled.Tune, "Sort and filter (Select)", { showOptions = true })
             AppIconButton(if (ui.listView) Icons.Filled.GridView else Icons.Filled.ViewList, if (ui.listView) "Grid view" else "List view", { vm.setListView(!ui.listView) })
             BadgedBox(badge = { if (activeDownloads > 0) Badge { Text("$activeDownloads") } }) {

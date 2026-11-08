@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.Text
 import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
@@ -29,6 +30,9 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -79,7 +83,8 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             RommTheme {
-                CompositionLocalProvider(LocalPad provides pad) {
+                // LocalContentColor defaults to black outside a Surface; make plain Text/Icon light everywhere.
+                CompositionLocalProvider(LocalPad provides pad, LocalContentColor provides Palette.Text) {
                     val app: AppViewModel = viewModel { AppViewModel(container) }
                     val compact = calculateWindowSizeClass(this).widthSizeClass == WindowWidthSizeClass.Compact
                     Box(Modifier.fillMaxSize().background(Palette.Background).safeDrawingPadding()) {
@@ -176,6 +181,30 @@ class MainActivity : ComponentActivity() {
                     refresh = { c.catalog.refresh(); app.message = "Reloading games from the server…" },
                     signOut = app::signOut,
                 ),
+            )
+        }
+
+        // First run: ask for the library folder up front. The system folder picker *is* the permission
+        // grant (Storage Access Framework), so there's no separate "allow storage" prompt.
+        var folderPromptDismissed by rememberSaveable { mutableStateOf(false) }
+        if (app.screen == Screen.Browse && settings != null && library.uri.isEmpty() && !folderPromptDismissed) {
+            AlertDialog(
+                onDismissRequest = { folderPromptDismissed = true },
+                title = { Text("Choose your library folder") },
+                text = {
+                    Text(
+                        "Pick the folder games should be installed into, for example your ROMs folder on the SD card. " +
+                            "Android will open its folder picker: go into the folder and choose \"Use this folder\", then allow access. " +
+                            "Platform folders (snes, psx…) are created inside it."
+                    )
+                },
+                confirmButton = {
+                    AppButton("Pick folder", {
+                        folderPromptDismissed = true
+                        runCatching { pickFolder.launch(null) }.onFailure { app.message = "This device has no folder picker available." }
+                    })
+                },
+                dismissButton = { AppButton("Later", { folderPromptDismissed = true }, style = ButtonStyle.Outline) },
             )
         }
 

@@ -51,10 +51,23 @@ class SafLibraryStorage(context: Context, private val treeUri: Uri) : LibrarySto
         return query(d.docId).also { listings[dir] = it }
     }
 
+    /**
+     * Exact name first, then case-insensitive: shared storage and SD cards (FAT/exFAT) ignore case, so an
+     * existing "Switch" folder *is* "switch" there, and asking the provider to create "switch" would give
+     * us "switch (1)" instead. This also matches what the Windows desktop build sees.
+     */
     private fun resolve(path: String): Child? {
         if (path.isEmpty()) return rootChild()
-        return children(Paths.parent(path))?.get(Paths.name(path))
+        val kids = children(Paths.parent(path)) ?: return null
+        val name = Paths.name(path)
+        return kids[name] ?: kids.values.firstOrNull { it.name.equals(name, ignoreCase = true) }
     }
+
+    private fun displayName(uri: Uri): String? = runCatching {
+        resolver.query(uri, arrayOf(Document.COLUMN_DISPLAY_NAME), null, null, null)?.use { c ->
+            if (c.moveToFirst()) c.getString(0) else null
+        }
+    }.getOrNull()
 
     private fun require(path: String) = resolve(path) ?: throw FileNotFoundException("$path doesn't exist")
 
@@ -88,12 +101,16 @@ class SafLibraryStorage(context: Context, private val treeUri: Uri) : LibrarySto
             val existing = resolve(next)
             if (existing == null) {
                 val parent = require(cur)
-                DocumentsContract.createDocument(resolver, docUri(parent.docId), Document.MIME_TYPE_DIR, seg)
-                    ?: throw IOException("Could not create folder $next")
+                val created = DocumentsContract.createDocument(resolver, docUri(parent.docId), Document.MIME_TYPE_DIR, seg)
+                    ?: throw IOException("Couldn't create the folder \"$next\" in your library. Check the folder is writable, or pick it again in Settings.")
                 changed(cur)
-                if (resolve(next)?.isDir != true) throw IOException("Could not create folder $next")
+                if (resolve(next)?.isDir != true) {
+                    val actual = displayName(created)
+                    runCatching { DocumentsContract.deleteDocument(resolver, created) }
+                    throw IOException("Couldn't create the folder \"$next\" (the storage made \"${actual ?: "?"}\" instead). Rename or remove whatever is in the way and retry.")
+                }
             } else if (!existing.isDir) {
-                throw IOException("$next is a file, expected a folder")
+                throw IOException("\"$next\" in your library is a file, but a folder is needed there. Rename or remove it and retry.")
             }
             cur = next
         }
