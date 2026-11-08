@@ -118,6 +118,8 @@ class SettingsRepository(context: Context) {
 
 /** AES-GCM with a non-exportable Android Keystore key. Output is base64(iv || ciphertext). */
 class SecretBox(private val alias: String = "romm_explorer_secrets") {
+    // Synchronized so two first-time callers can't each generate a key and orphan one of them.
+    @Synchronized
     private fun key(): SecretKey {
         val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         (ks.getEntry(alias, null) as? KeyStore.SecretKeyEntry)?.let { return it.secretKey }

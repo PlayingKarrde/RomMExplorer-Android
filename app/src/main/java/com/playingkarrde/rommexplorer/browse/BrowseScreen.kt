@@ -363,7 +363,7 @@ private fun CollectionHeader(ui: BrowseUi, vm: BrowseViewModel) {
         Column(Modifier.weight(1f)) {
             Text(tab?.label ?: "All platforms", fontWeight = FontWeight.Bold, fontSize = 20.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
-                "${ui.roms.size} games · ${ui.installed.keys.count { id -> ui.roms.any { it.id == id } }} installed · ${ui.filters.install.label} · ${ui.sort.label}",
+                "${ui.roms.size} games · ${ui.roms.count { it.id in ui.installed }} installed · ${ui.filters.install.label} · ${ui.sort.label}",
                 color = Palette.Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }

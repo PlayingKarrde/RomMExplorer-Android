@@ -11,8 +11,10 @@ import com.playingkarrde.rommexplorer.data.api.Rom
 import com.playingkarrde.rommexplorer.data.api.RommClient
 import com.playingkarrde.rommexplorer.data.settings.SettingsRepository
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -60,6 +62,11 @@ class DownloadRepository(
     private val lock = Any()
     private val map = LinkedHashMap<Long, DownloadItem>()
     private val jobs = HashMap<Long, Job>()
+    /** Running downloads the user asked to cancel (as opposed to the worker being stopped). */
+    private val userCancelled = HashSet<Long>()
+    private val fileLock = Any()
+    private var persistSeq = 0L
+    private var writtenSeq = 0L
     private val _items = MutableStateFlow<List<DownloadItem>>(emptyList())
     val items: StateFlow<List<DownloadItem>> = _items.asStateFlow()
     private val queueFile = File(context.filesDir, "download-queue.json")
@@ -103,7 +110,11 @@ class DownloadRepository(
 
     fun cancel(id: Long) {
         synchronized(lock) {
-            jobs[id]?.cancel()
+            val job = jobs[id]
+            if (job != null) {
+                userCancelled.add(id)
+                job.cancel()
+            }
             if (map[id]?.status == DownloadStatus.Queued) set(id, DownloadStatus.Cancelled)
         }
     }
@@ -124,13 +135,6 @@ class DownloadRepository(
         WorkManager.getInstance(context).enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, req)
     }
 
-    private fun takeNext(): DownloadItem? = synchronized(lock) {
-        val next = map.values.firstOrNull { it.status == DownloadStatus.Queued } ?: return null
-        map[next.rom.id] = next.copy(status = DownloadStatus.Downloading(0, next.rom.fsSizeBytes, 0.0))
-        publish()
-        next
-    }
-
     val hasQueued: Boolean get() = synchronized(lock) { map.values.any { it.status == DownloadStatus.Queued } }
 
     /** Runs until the queue is empty. Cancelling the caller cancels every running download. */
@@ -138,22 +142,42 @@ class DownloadRepository(
         repeat(MAX_PARALLEL) {
             launch {
                 while (true) {
-                    val item = takeNext() ?: break
-                    val job = launch(start = kotlinx.coroutines.CoroutineStart.LAZY) { runOne(item.rom) }
-                    synchronized(lock) { jobs[item.rom.id] = job }
+                    // Pick the next item and register its job in one step, so a cancel() can never land
+                    // in between and be lost.
+                    val (id, job) = synchronized(lock) {
+                        val next = map.values.firstOrNull { it.status == DownloadStatus.Queued } ?: return@launch
+                        val id = next.rom.id
+                        map[id] = next.copy(status = DownloadStatus.Downloading(0, next.rom.fsSizeBytes, 0.0))
+                        publish()
+                        val job = launch(start = CoroutineStart.LAZY) { runOne(next.rom) }
+                        jobs[id] = job
+                        id to job
+                    }
                     job.join()
                     synchronized(lock) {
-                        jobs.remove(item.rom.id)
-                        if (map[item.rom.id]?.active == true) set(item.rom.id, DownloadStatus.Cancelled)
+                        jobs.remove(id)
+                        userCancelled.remove(id)
+                        val st = map[id]?.status
+                        if (st is DownloadStatus.Downloading || st is DownloadStatus.Extracting) set(id, DownloadStatus.Cancelled)
                     }
                 }
             }
         }
     }
 
-    /** Marks anything still marked as running as cancelled (the worker was stopped). */
-    fun onWorkerStopped() = synchronized(lock) {
-        map.values.filter { it.status !is DownloadStatus.Queued && it.active }.forEach { set(it.rom.id, DownloadStatus.Cancelled) }
+    /**
+     * Called when the worker stops. If the user cancelled it (the notification's "Cancel all"), everything
+     * still pending is cancelled; otherwise the system stopped it and WorkManager will run it again later,
+     * so interrupted downloads stay queued.
+     */
+    fun onWorkerStopped(cancelledByUser: Boolean) = synchronized(lock) {
+        for (item in map.values.filter { it.active }) {
+            if (cancelledByUser || item.status !is DownloadStatus.Queued) {
+                set(item.rom.id, if (cancelledByUser) DownloadStatus.Cancelled else DownloadStatus.Queued)
+            }
+        }
+        jobs.clear()
+        userCancelled.clear()
     }
 
     private suspend fun runOne(rom: Rom) {
@@ -203,10 +227,18 @@ class DownloadRepository(
                     }
                 }
             }
-            library.use { it.record(entry) }
+            try {
+                library.use { it.record(entry) }
+            } catch (t: Throwable) {
+                // Don't leave an untracked game behind when the manifest can't be written.
+                withContext(NonCancellable + Dispatchers.IO) { runCatching { lib.storage.delete(entry.relPath) } }
+                throw t
+            }
             set(rom.id, DownloadStatus.Done)
         } catch (e: CancellationException) {
-            set(rom.id, DownloadStatus.Cancelled)
+            // The user cancelled it, or the system stopped the worker (it'll run again, so keep it queued).
+            val byUser = synchronized(lock) { rom.id in userCancelled }
+            set(rom.id, if (byUser) DownloadStatus.Cancelled else DownloadStatus.Queued)
             throw e
         } catch (e: Throwable) {
             coroutineContext.ensureActive()
@@ -214,10 +246,23 @@ class DownloadRepository(
         }
     }
 
+    /** Called under [lock]. Writes happen off-thread, in order, and an older snapshot never overwrites a newer one. */
     private fun persist() {
-        val queued = map.values.filter { it.active }.map { it.rom.raw }
+        val text = json.encodeToString(JsonArray.serializer(), JsonArray(map.values.filter { it.active }.map { it.rom.raw }))
+        val seq = ++persistSeq
         scope.launch(Dispatchers.IO) {
-            runCatching { queueFile.writeText(json.encodeToString(JsonArray.serializer(), JsonArray(queued))) }
+            synchronized(fileLock) {
+                if (seq <= writtenSeq) return@synchronized
+                runCatching {
+                    val tmp = File(queueFile.path + ".tmp")
+                    tmp.writeText(text)
+                    if (!tmp.renameTo(queueFile)) {
+                        queueFile.delete()
+                        tmp.renameTo(queueFile)
+                    }
+                }
+                writtenSeq = seq
+            }
         }
     }
 

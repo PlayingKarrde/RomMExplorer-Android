@@ -118,6 +118,20 @@ class ApiTest {
         assertEquals("false", first.queryParameter("with_char_index"))
     }
 
+    @Test fun romsKeepPagingWhenServerCapsLimit() = runBlocking {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val offset = request.requestUrl!!.queryParameter("offset")!!.toInt()
+                val total = 5
+                // The server ignores our limit of 10 and sends at most 2 per page.
+                val items = (offset until minOf(offset + 2, total)).joinToString(",") { """{"id":$it,"name":"G$it"}""" }
+                return MockResponse().setBody("""{"items":[$items],"total":$total}""")
+            }
+        }
+        val pages = client().allRoms(limit = 10).toList()
+        assertEquals(listOf(2, 2, 1), pages.map { it.size })
+    }
+
     @Test fun romsPlainArrayIsOnePage() = runBlocking {
         server.enqueue(MockResponse().setBody("""[{"id":1},{"id":2},{"id":3}]"""))
         val pages = client().allRoms(limit = 2).toList()

@@ -53,6 +53,8 @@ class CatalogRepository(private val scope: CoroutineScope, private val http: OkH
             holder.config = previous
             throw e
         }
+        // A load still running for the previous server would otherwise mix its games into the new state.
+        loadJob?.cancel()
         client = c
         _state.value = CatalogState(username = user)
         return user
@@ -79,13 +81,16 @@ class CatalogRepository(private val scope: CoroutineScope, private val http: OkH
             _state.update { it.copy(loading = true, error = null) }
             try {
                 val platforms = c.platforms().sortedBy { it.label.lowercase() }
-                _state.update { it.copy(platforms = platforms, roms = emptyList()) }
+                // First load: show games page by page. Reload: keep the current list until the new one is
+                // complete, so the grid (and the focused card) doesn't vanish underneath the user.
+                val streaming = _state.value.roms.isEmpty()
+                if (streaming) _state.update { it.copy(platforms = platforms) }
                 val acc = ArrayList<Rom>()
                 c.allRoms().collect { page ->
                     acc.addAll(page)
-                    _state.update { it.copy(roms = ArrayList(acc)) }
+                    if (streaming) _state.update { it.copy(roms = ArrayList(acc)) }
                 }
-                _state.update { it.copy(loading = false) }
+                _state.update { it.copy(platforms = platforms, roms = acc, loading = false) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
@@ -117,6 +122,11 @@ class LibraryRepository(private val context: Context) {
 
     suspend fun open(uriString: String) = withContext(Dispatchers.IO) {
         mutex.withLock {
+            // Already open (e.g. a new activity re-reading settings while a download runs): keep the
+            // instance, so an in-flight install can still record itself.
+            if (uriString.isNotEmpty() && library != null && _state.value.uri == uriString && _state.value.error == null) {
+                return@withLock
+            }
             library = null
             if (uriString.isEmpty()) {
                 _state.value = LibraryState()

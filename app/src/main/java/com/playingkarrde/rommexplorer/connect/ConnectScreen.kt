@@ -65,8 +65,9 @@ fun ConnectScreen(
 ) {
     var url by rememberSaveable { mutableStateOf(initial.serverUrl) }
     var user by rememberSaveable { mutableStateOf(initial.username) }
-    var pass by rememberSaveable { mutableStateOf(initial.password) }
-    var token by rememberSaveable { mutableStateOf(initial.token) }
+    // Not rememberSaveable: saved instance state is plain text and can be written to disk by the system.
+    var pass by remember { mutableStateOf(initial.password) }
+    var token by remember { mutableStateOf(initial.token) }
     var selfSigned by rememberSaveable { mutableStateOf(initial.allowSelfSigned) }
     var error by remember { mutableStateOf(initialError) }
     var busy by remember { mutableStateOf(false) }

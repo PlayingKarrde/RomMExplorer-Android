@@ -10,6 +10,7 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.playingkarrde.rommexplorer.MainActivity
@@ -40,7 +41,7 @@ class DownloadWorker(context: Context, params: WorkerParameters) : CoroutineWork
                 updates.cancel()
             }
         } catch (e: CancellationException) {
-            repo.onWorkerStopped()
+            repo.onWorkerStopped(cancelledByUser = stopReason == WorkInfo.STOP_REASON_CANCELLED_BY_APP)
             throw e
         }
         return Result.success()

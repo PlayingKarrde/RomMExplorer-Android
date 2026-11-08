@@ -62,7 +62,8 @@ class RommClient(val config: ServerConfig, private val http: OkHttpClient) {
                 cont.resumeWithException(RommException("Couldn't reach $base. Check the address and your network connection. (${e.message})", cause = e))
             }
             override fun onResponse(call: Call, response: Response) {
-                cont.resume(response)
+                // If the coroutine was cancelled meanwhile, nobody will close the response: do it here.
+                cont.resume(response) { _, _, _ -> response.close() }
             }
         })
     }
@@ -106,7 +107,12 @@ class RommClient(val config: ServerConfig, private val http: OkHttpClient) {
             val page = romsPage(offset, limit)
             emit(page.roms)
             offset += page.rawCount
-            if (!page.paginated || page.rawCount < limit || page.rawCount == 0 || (page.total != null && offset >= page.total)) break
+            if (!page.paginated || page.rawCount == 0) break
+            // Trust `total` when the server sends it: it may cap `limit` below what we asked for, so a short
+            // page doesn't mean the end. Without a total, a short page is the last one.
+            if (page.total != null) {
+                if (offset >= page.total) break
+            } else if (page.rawCount < limit) break
         }
     }.flowOn(Dispatchers.IO)
 
