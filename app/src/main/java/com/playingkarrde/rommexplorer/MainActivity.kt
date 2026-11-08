@@ -5,6 +5,7 @@ import android.annotation.SuppressLint
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -237,17 +238,24 @@ class MainActivity : ComponentActivity() {
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         val confirm = if (swapAB) KeyEvent.KEYCODE_BUTTON_B else KeyEvent.KEYCODE_BUTTON_A
         val back = if (swapAB) KeyEvent.KEYCODE_BUTTON_A else KeyEvent.KEYCODE_BUTTON_B
-        when (event.keyCode) {
-            confirm -> return super.dispatchKeyEvent(
+        // Some handhelds send BACK for the B button instead of BUTTON_B; treat that as the controller's B too.
+        val isPadBack = event.keyCode == back ||
+            (event.keyCode == KeyEvent.KEYCODE_BACK && event.isFromSource(InputDevice.SOURCE_GAMEPAD))
+        if (isPadBack) {
+            // Only go back when there's somewhere to go (a previous screen, an open text field, …).
+            // At the top level, B does nothing instead of closing the app; the system Back gesture still can.
+            if (event.action == KeyEvent.ACTION_UP && !event.isCanceled && onBackPressedDispatcher.hasEnabledCallbacks()) {
+                onBackPressedDispatcher.onBackPressed()
+            }
+            return true
+        }
+        if (event.keyCode == confirm) {
+            return super.dispatchKeyEvent(
                 KeyEvent(
                     event.downTime, event.eventTime, event.action, KeyEvent.KEYCODE_DPAD_CENTER,
                     event.repeatCount, event.metaState, event.deviceId, event.scanCode, event.flags, event.source,
                 )
             )
-            back -> {
-                if (event.action == KeyEvent.ACTION_UP && !event.isCanceled) onBackPressedDispatcher.onBackPressed()
-                return true
-            }
         }
         val action = padActionFor(event.keyCode)
         if (action != null) {
