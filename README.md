@@ -4,6 +4,10 @@ A native Android client for a [RomM](https://github.com/rommapp/romm) server. Br
 
 It's the Android sibling of the desktop [RomMExplorer](https://github.com/PlayingKarrde/RomMExplorer). The two share no code, but they use the **same library format**, so a library folder on an SD card works in both.
 
+## Install
+
+Download the latest `RomMExplorer-x.y.z.apk` from [Releases](https://github.com/PlayingKarrde/RomMExplorer-Android/releases) and open it on your device (allow installing from your browser or file manager when Android asks). Android 8.0 or newer.
+
 ## Features
 
 - Sign in with username/password or a RomM API token (`rmm_…`, takes priority). Optional "allow self-signed HTTPS certificates", scoped to your server only.
@@ -41,6 +45,17 @@ Requirements: JDK 17 or newer and the Android SDK with Platform 36. Create `loca
 ./gradlew testDebugUnitTest      # JVM unit tests
 ./gradlew lint
 ```
+
+## Releasing
+
+Releases are built and published by GitHub Actions ([.github/workflows/release.yml](.github/workflows/release.yml)):
+
+1. Bump `versionCode` and `versionName` in `app/build.gradle.kts` and commit.
+2. Tag and push: `git tag v<versionName> && git push origin v<versionName>`.
+
+The workflow runs the unit tests, builds a signed release APK and attaches it to a new GitHub release. It needs these repository secrets: `RELEASE_KEYSTORE_BASE64` (the keystore, base64-encoded), `RELEASE_KEYSTORE_PASSWORD`, `RELEASE_KEY_ALIAS` and `RELEASE_KEY_PASSWORD`.
+
+For a signed local build (`./gradlew assembleRelease`), put the same values in `local.properties` as `release.keystore.path`, `release.keystore.password`, `release.key.alias` and `release.key.password`, or set the `RELEASE_*` environment variables. Keep a backup of the keystore: updates must be signed with the same key.
 
 ## Library format
 
